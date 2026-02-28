@@ -30,6 +30,7 @@ import (
 	"math/rand"
 	"os"
 	"sort"
+	"sync"
 	"time"
 )
 
@@ -91,6 +92,7 @@ type TimingData struct {
 type Replay struct {
 	data    *TimingData
 	rng     *rand.Rand
+	mu      sync.Mutex
 	index   int
 	mode    ReplayMode
 	speedup float64
@@ -104,7 +106,14 @@ type Replay struct {
 //   - speedup: Multiplier for replay speed (1.0 = real-time, 2.0 = 2x faster, 0.5 = 2x slower)
 //
 // If speedup is <= 0, it defaults to 1.0 (real-time).
+// Panics if data is nil or has no inter-arrival values.
 func NewReplay(data *TimingData, mode ReplayMode, speedup float64) *Replay {
+	if data == nil {
+		panic("hcsreplay: NewReplay called with nil data")
+	}
+	if len(data.InterArrivalMs) == 0 {
+		panic("hcsreplay: NewReplay called with empty InterArrivalMs")
+	}
 	if speedup <= 0 {
 		speedup = 1.0
 	}
@@ -126,6 +135,9 @@ func NewReplay(data *TimingData, mode ReplayMode, speedup float64) *Replay {
 //
 // The returned delay is adjusted by the speedup factor.
 func (r *Replay) NextDelay() time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	var delayMs float64
 
 	switch r.mode {
@@ -215,10 +227,21 @@ func SaveTiming(path string, data *TimingData) error {
 // The distribution follows a log-normal pattern typical of real network traffic.
 //
 // Parameters:
-//   - count: Number of inter-arrival samples to generate
-//   - avgMs: Target average inter-arrival time in milliseconds
-//   - stddevMs: Standard deviation in milliseconds
+//   - count: Number of inter-arrival samples to generate (must be > 0)
+//   - avgMs: Target average inter-arrival time in milliseconds (must be > 0)
+//   - stddevMs: Standard deviation in milliseconds (must be >= 0)
+//
+// Panics if count <= 0 or avgMs <= 0.
 func GenerateSynthetic(count int, avgMs, stddevMs float64) *TimingData {
+	if count <= 0 {
+		panic("hcsreplay: GenerateSynthetic called with count <= 0")
+	}
+	if avgMs <= 0 {
+		panic("hcsreplay: GenerateSynthetic called with avgMs <= 0")
+	}
+	if stddevMs < 0 {
+		stddevMs = 0
+	}
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// Generate log-normal distributed inter-arrivals

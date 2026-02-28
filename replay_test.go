@@ -350,6 +350,43 @@ func TestCalculateStats_Empty(t *testing.T) {
 	}
 }
 
+func TestNewReplay_NilData(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("NewReplay(nil) should panic")
+		}
+	}()
+	NewReplay(nil, ModeSample, 1.0)
+}
+
+func TestNewReplay_EmptyInterArrivals(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("NewReplay with empty InterArrivalMs should panic")
+		}
+	}()
+	data := &TimingData{InterArrivalMs: []float64{}}
+	NewReplay(data, ModeSample, 1.0)
+}
+
+func TestGenerateSynthetic_InvalidCount(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("GenerateSynthetic(0, ...) should panic")
+		}
+	}()
+	GenerateSynthetic(0, 50.0, 20.0)
+}
+
+func TestGenerateSynthetic_InvalidAvgMs(t *testing.T) {
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("GenerateSynthetic(..., 0, ...) should panic")
+		}
+	}()
+	GenerateSynthetic(100, 0, 20.0)
+}
+
 func TestHelperFunctions(t *testing.T) {
 	// Test average
 	vals := []float64{10, 20, 30, 40, 50}
