@@ -5,7 +5,8 @@
       "Bash(git ls-tree:*)",
       "Bash(wc:*)",
       "Bash(go mod init:*)",
-      "Bash(go test:*)"
+      "Bash(go test:*)",
+      "Bash(golangci-lint run:*)"
     ]
   }
 }

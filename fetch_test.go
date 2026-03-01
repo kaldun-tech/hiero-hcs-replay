@@ -47,7 +47,9 @@ func TestFetchTimingWithOptions(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := hcsResponse{Messages: messages}
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -104,7 +106,9 @@ func TestFetchTimingWithOptions_Pagination(t *testing.T) {
 		} else {
 			resp = hcsResponse{Messages: page2Messages}
 		}
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -152,7 +156,9 @@ func TestFetchTimingWithOptions_NotEnoughMessages(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(hcsResponse{Messages: messages})
+		if err := json.NewEncoder(w).Encode(hcsResponse{Messages: messages}); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -171,7 +177,9 @@ func TestFetchTimingWithOptions_NotEnoughMessages(t *testing.T) {
 func TestFetchTimingWithOptions_ContextCancellation(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		time.Sleep(100 * time.Millisecond)
-		json.NewEncoder(w).Encode(hcsResponse{})
+		if err := json.NewEncoder(w).Encode(hcsResponse{}); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -197,7 +205,9 @@ func TestFetchTimingWithOptions_OnProgress(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(hcsResponse{Messages: messages})
+		if err := json.NewEncoder(w).Encode(hcsResponse{Messages: messages}); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -247,7 +257,9 @@ func TestFetchTimingWithOptions_Limit(t *testing.T) {
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(hcsResponse{Messages: messages})
+		if err := json.NewEncoder(w).Encode(hcsResponse{Messages: messages}); err != nil {
+			t.Errorf("failed to encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
