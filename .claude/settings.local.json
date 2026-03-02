@@ -6,7 +6,9 @@
       "Bash(wc:*)",
       "Bash(go mod init:*)",
       "Bash(go test:*)",
-      "Bash(golangci-lint run:*)"
+      "Bash(golangci-lint run:*)",
+      "Bash(go mod verify:*)",
+      "Bash(go mod tidy:*)"
     ]
   }
 }
