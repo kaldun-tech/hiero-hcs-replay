@@ -178,6 +178,10 @@ This library was extracted from [grpc-rest-benchmark](https://github.com/kaldun-
 
 You can also use custom mirror node URLs via `FetchTimingWithOptions`.
 
+## Design
+
+For architectural decisions and trade-offs, see [DESIGN.md](DESIGN.md).
+
 ## Contributing
 
 Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
