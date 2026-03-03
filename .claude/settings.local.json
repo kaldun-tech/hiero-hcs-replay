@@ -8,7 +8,8 @@
       "Bash(go test:*)",
       "Bash(golangci-lint run:*)",
       "Bash(go mod verify:*)",
-      "Bash(go mod tidy:*)"
+      "Bash(go mod tidy:*)",
+      "Bash(ls:*)"
     ]
   }
 }

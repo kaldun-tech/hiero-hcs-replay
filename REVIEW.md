@@ -61,8 +61,8 @@ Use this checklist when reviewing code for hiero-hcs-replay.
   - Tests for: not enough messages, context cancellation, 404, limit enforcement
 - [x] Are tests deterministic? (avoid time-dependent or random failures)
   - Mock HTTP servers, range checks for random values
-- N/A Do tests use `t.Helper()` for test helper functions?
-  - `floatEquals` is a pure utility function, not a test helper
+- [x] Do tests use `t.Helper()` for test helper functions?
+  - `writeTestFile`, `encodeJSONResponse`, `newTestServer`, `newTestFetchOptions` all use `t.Helper()`
 - [x] Are table-driven tests used where appropriate?
   - Reference: [Go Wiki - Table Driven Tests](https://github.com/golang/go/wiki/TableDrivenTests)
   - `TestNetwork_MirrorNodeURL`, `TestParseConsensusTimestamp`
