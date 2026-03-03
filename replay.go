@@ -225,6 +225,7 @@ func SaveTiming(path string, data *TimingData) error {
 
 // GenerateSynthetic creates synthetic timing data for testing.
 // The distribution follows a log-normal pattern typical of real network traffic.
+// See https://en.wikipedia.org/wiki/Log-normal_distribution
 //
 // Parameters:
 //   - count: Number of inter-arrival samples to generate (must be > 0)
@@ -232,6 +233,7 @@ func SaveTiming(path string, data *TimingData) error {
 //   - stddevMs: Standard deviation in milliseconds (must be >= 0)
 //
 // Panics if count <= 0 or avgMs <= 0.
+// An input of stddevMs < 0 is treated as 0
 func GenerateSynthetic(count int, avgMs, stddevMs float64) *TimingData {
 	if count <= 0 {
 		panic("hcsreplay: GenerateSynthetic called with count <= 0")
@@ -247,7 +249,7 @@ func GenerateSynthetic(count int, avgMs, stddevMs float64) *TimingData {
 	// Generate log-normal distributed inter-arrivals
 	interArrivals := make([]float64, count)
 	for i := range interArrivals {
-		// Box-Muller transform for normal distribution
+		// Box-Muller transform for normal distribution. See https://en.wikipedia.org/wiki/Box%E2%80%93Muller_transform
 		u1 := rng.Float64()
 		u2 := rng.Float64()
 		z := math.Sqrt(-2*math.Log(u1)) * math.Cos(2*math.Pi*u2)
@@ -297,6 +299,9 @@ func CalculateStats(interArrivals []float64) Stats {
 		P99Ms: percentile(sorted, 0.99),
 	}
 }
+
+// Helper functions for statistics. Go's stdlib doesn't include these,
+// and adding a dependency like gonum would be overkill for three trivial functions.
 
 func average(vals []float64) float64 {
 	if len(vals) == 0 {

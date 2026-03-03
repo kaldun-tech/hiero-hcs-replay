@@ -9,109 +9,130 @@ import (
 	"time"
 )
 
+const testTopicID = "0.0.12345"
+
+// writeTestFile is a helper that writes data to a temp file, failing the test on error.
+func writeTestFile(t *testing.T, path string, data []byte) {
+	t.Helper()
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+}
+
 func TestNewReplay(t *testing.T) {
 	data := &TimingData{
 		InterArrivalMs: []float64{100, 200, 300},
 	}
 
-	replay := NewReplay(data, ModeSample, 1.0)
-	if replay == nil {
-		t.Fatal("NewReplay() returned nil")
-	}
-	if replay.Mode() != ModeSample {
-		t.Errorf("Mode() = %q, want %q", replay.Mode(), ModeSample)
-	}
-	if replay.Speedup() != 1.0 {
-		t.Errorf("Speedup() = %f, want 1.0", replay.Speedup())
-	}
-}
-
-func TestNewReplay_InvalidSpeedup(t *testing.T) {
-	data := &TimingData{
-		InterArrivalMs: []float64{100, 200, 300},
-	}
-
-	// Zero speedup should default to 1.0
-	replay := NewReplay(data, ModeSample, 0)
-	if replay.Speedup() != 1.0 {
-		t.Errorf("Speedup() = %f, want 1.0 (default)", replay.Speedup())
-	}
-
-	// Negative speedup should default to 1.0
-	replay = NewReplay(data, ModeSample, -5)
-	if replay.Speedup() != 1.0 {
-		t.Errorf("Speedup() = %f, want 1.0 (default)", replay.Speedup())
-	}
-}
-
-func TestReplay_NextDelay_Sequential(t *testing.T) {
-	data := &TimingData{
-		InterArrivalMs: []float64{100, 200, 300},
-	}
-
-	replay := NewReplay(data, ModeSequential, 1.0)
-
-	// Sequential mode should return values in order
-	expected := []time.Duration{
-		100 * time.Millisecond,
-		200 * time.Millisecond,
-		300 * time.Millisecond,
-		100 * time.Millisecond, // Wraps around
-	}
-
-	for i, want := range expected {
-		got := replay.NextDelay()
-		if got != want {
-			t.Errorf("NextDelay() #%d = %v, want %v", i, got, want)
+	t.Run("Basic", func(t *testing.T) {
+		replay := NewReplay(data, ModeSample, 1.0)
+		if replay == nil {
+			t.Fatal("NewReplay() returned nil")
 		}
-	}
+		if replay.Mode() != ModeSample {
+			t.Errorf("Mode() = %q, want %q", replay.Mode(), ModeSample)
+		}
+		if replay.Speedup() != 1.0 {
+			t.Errorf("Speedup() = %f, want 1.0", replay.Speedup())
+		}
+	})
+
+	t.Run("ZeroSpeedupDefaultsToOne", func(t *testing.T) {
+		replay := NewReplay(data, ModeSample, 0)
+		if replay.Speedup() != 1.0 {
+			t.Errorf("Speedup() = %f, want 1.0 (default)", replay.Speedup())
+		}
+	})
+
+	t.Run("NegativeSpeedupDefaultsToOne", func(t *testing.T) {
+		replay := NewReplay(data, ModeSample, -5)
+		if replay.Speedup() != 1.0 {
+			t.Errorf("Speedup() = %f, want 1.0 (default)", replay.Speedup())
+		}
+	})
 }
 
-func TestReplay_NextDelay_Sample(t *testing.T) {
+func TestNewReplayPanics(t *testing.T) {
+	t.Run("NilData", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("NewReplay(nil) should panic")
+			}
+		}()
+		NewReplay(nil, ModeSample, 1.0)
+	})
+
+	t.Run("EmptyInterArrivals", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("NewReplay with empty InterArrivalMs should panic")
+			}
+		}()
+		data := &TimingData{InterArrivalMs: []float64{}}
+		NewReplay(data, ModeSample, 1.0)
+	})
+}
+
+func TestReplayNextDelay(t *testing.T) {
 	data := &TimingData{
 		InterArrivalMs: []float64{100, 200, 300},
 	}
 
-	replay := NewReplay(data, ModeSample, 1.0)
+	t.Run("Sequential", func(t *testing.T) {
+		replay := NewReplay(data, ModeSequential, 1.0)
 
-	// Sample mode should return values from the distribution
-	validDelays := map[time.Duration]bool{
-		100 * time.Millisecond: true,
-		200 * time.Millisecond: true,
-		300 * time.Millisecond: true,
-	}
-
-	for i := 0; i < 10; i++ {
-		got := replay.NextDelay()
-		if !validDelays[got] {
-			t.Errorf("NextDelay() = %v, not in valid set", got)
+		expected := []time.Duration{
+			100 * time.Millisecond,
+			200 * time.Millisecond,
+			300 * time.Millisecond,
+			100 * time.Millisecond, // Wraps around
 		}
-	}
+
+		for i, want := range expected {
+			got := replay.NextDelay()
+			if got != want {
+				t.Errorf("NextDelay() #%d = %v, want %v", i, got, want)
+			}
+		}
+	})
+
+	t.Run("Sample", func(t *testing.T) {
+		replay := NewReplay(data, ModeSample, 1.0)
+
+		validDelays := map[time.Duration]bool{
+			100 * time.Millisecond: true,
+			200 * time.Millisecond: true,
+			300 * time.Millisecond: true,
+		}
+
+		for i := 0; i < 10; i++ {
+			got := replay.NextDelay()
+			if !validDelays[got] {
+				t.Errorf("NextDelay() = %v, not in valid set", got)
+			}
+		}
+	})
+
+	t.Run("Speedup", func(t *testing.T) {
+		// 2x speedup means delays should be halved
+		replay := NewReplay(data, ModeSequential, 2.0)
+
+		expected := []time.Duration{
+			50 * time.Millisecond,  // 100 / 2
+			100 * time.Millisecond, // 200 / 2
+			150 * time.Millisecond, // 300 / 2
+		}
+
+		for i, want := range expected {
+			got := replay.NextDelay()
+			if got != want {
+				t.Errorf("NextDelay() #%d = %v, want %v", i, got, want)
+			}
+		}
+	})
 }
 
-func TestReplay_NextDelay_Speedup(t *testing.T) {
-	data := &TimingData{
-		InterArrivalMs: []float64{100, 200, 300},
-	}
-
-	// 2x speedup means delays should be halved
-	replay := NewReplay(data, ModeSequential, 2.0)
-
-	expected := []time.Duration{
-		50 * time.Millisecond,  // 100 / 2
-		100 * time.Millisecond, // 200 / 2
-		150 * time.Millisecond, // 300 / 2
-	}
-
-	for i, want := range expected {
-		got := replay.NextDelay()
-		if got != want {
-			t.Errorf("NextDelay() #%d = %v, want %v", i, got, want)
-		}
-	}
-}
-
-func TestReplay_EffectiveRate(t *testing.T) {
+func TestReplayEffectiveRate(t *testing.T) {
 	data := &TimingData{
 		AvgRatePerSecond: 10.0,
 		InterArrivalMs:   []float64{100},
@@ -123,15 +144,15 @@ func TestReplay_EffectiveRate(t *testing.T) {
 	}
 }
 
-func TestReplay_Data(t *testing.T) {
+func TestReplayData(t *testing.T) {
 	data := &TimingData{
-		TopicID:        "0.0.12345",
+		TopicID:        testTopicID,
 		InterArrivalMs: []float64{100},
 	}
 
 	replay := NewReplay(data, ModeSample, 1.0)
-	if replay.Data().TopicID != "0.0.12345" {
-		t.Errorf("Data().TopicID = %q, want %q", replay.Data().TopicID, "0.0.12345")
+	if replay.Data().TopicID != testTopicID {
+		t.Errorf("Data().TopicID = %q, want %q", replay.Data().TopicID, testTopicID)
 	}
 }
 
@@ -158,12 +179,9 @@ func TestLoadTiming(t *testing.T) {
 
 	jsonData, err := json.Marshal(data)
 	if err != nil {
-		t.Fatalf("Failed to marshal test data: %v", err)
+		t.Fatalf("failed to marshal test data: %v", err)
 	}
-
-	if err := os.WriteFile(tmpFile, jsonData, 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
+	writeTestFile(t, tmpFile, jsonData)
 
 	loaded, err := LoadTiming(tmpFile)
 	if err != nil {
@@ -181,49 +199,46 @@ func TestLoadTiming(t *testing.T) {
 	}
 }
 
-func TestLoadTiming_NotFound(t *testing.T) {
-	_, err := LoadTiming("/nonexistent/path/timing.json")
-	if err == nil {
-		t.Error("LoadTiming() expected error for non-existent file, got nil")
-	}
-}
+func TestLoadTimingErrors(t *testing.T) {
+	t.Run("NotFound", func(t *testing.T) {
+		_, err := LoadTiming("/nonexistent/path/timing.json")
+		if err == nil {
+			t.Error("LoadTiming() expected error for non-existent file, got nil")
+		}
+	})
 
-func TestLoadTiming_InvalidJSON(t *testing.T) {
-	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "invalid.json")
+	t.Run("InvalidJSON", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "invalid.json")
+		writeTestFile(t, tmpFile, []byte("not valid json"))
 
-	if err := os.WriteFile(tmpFile, []byte("not valid json"), 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
+		_, err := LoadTiming(tmpFile)
+		if err == nil {
+			t.Error("LoadTiming() expected error for invalid JSON, got nil")
+		}
+	})
 
-	_, err := LoadTiming(tmpFile)
-	if err == nil {
-		t.Error("LoadTiming() expected error for invalid JSON, got nil")
-	}
-}
+	t.Run("EmptyInterArrivals", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "empty.json")
 
-func TestLoadTiming_EmptyInterArrivals(t *testing.T) {
-	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "empty.json")
+		data := TimingData{
+			TopicID:        "0.0.123",
+			InterArrivalMs: []float64{},
+		}
+		jsonData, _ := json.Marshal(data)
+		writeTestFile(t, tmpFile, jsonData)
 
-	data := TimingData{
-		TopicID:        "0.0.123",
-		InterArrivalMs: []float64{}, // Empty
-	}
-	jsonData, _ := json.Marshal(data)
-	if err := os.WriteFile(tmpFile, jsonData, 0644); err != nil {
-		t.Fatalf("Failed to write test file: %v", err)
-	}
-
-	_, err := LoadTiming(tmpFile)
-	if err == nil {
-		t.Error("LoadTiming() expected error for empty inter-arrivals, got nil")
-	}
+		_, err := LoadTiming(tmpFile)
+		if err == nil {
+			t.Error("LoadTiming() expected error for empty inter-arrivals, got nil")
+		}
+	})
 }
 
 func TestReadTiming(t *testing.T) {
 	data := TimingData{
-		TopicID:        "0.0.12345",
+		TopicID:        testTopicID,
 		InterArrivalMs: []float64{100, 200},
 	}
 	jsonData, _ := json.Marshal(data)
@@ -240,7 +255,7 @@ func TestReadTiming(t *testing.T) {
 
 func TestWriteTiming(t *testing.T) {
 	data := &TimingData{
-		TopicID:        "0.0.12345",
+		TopicID:        testTopicID,
 		Network:        "testnet",
 		InterArrivalMs: []float64{100, 200},
 	}
@@ -263,7 +278,7 @@ func TestWriteTiming(t *testing.T) {
 
 func TestSaveTiming(t *testing.T) {
 	data := &TimingData{
-		TopicID:        "0.0.12345",
+		TopicID:        testTopicID,
 		Network:        "testnet",
 		InterArrivalMs: []float64{100, 200},
 	}
@@ -323,103 +338,88 @@ func TestGenerateSynthetic(t *testing.T) {
 	}
 }
 
+func TestGenerateSyntheticPanics(t *testing.T) {
+	t.Run("InvalidCount", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("GenerateSynthetic(0, ...) should panic")
+			}
+		}()
+		GenerateSynthetic(0, 50.0, 20.0)
+	})
+
+	t.Run("InvalidAvgMs", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r == nil {
+				t.Error("GenerateSynthetic(..., 0, ...) should panic")
+			}
+		}()
+		GenerateSynthetic(100, 0, 20.0)
+	})
+}
+
 func TestCalculateStats(t *testing.T) {
-	// Test with known values
-	vals := []float64{10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
-	stats := CalculateStats(vals)
+	t.Run("KnownValues", func(t *testing.T) {
+		vals := []float64{10, 20, 30, 40, 50, 60, 70, 80, 90, 100}
+		stats := CalculateStats(vals)
 
-	if stats.MinMs != 10 {
-		t.Errorf("MinMs = %f, want 10", stats.MinMs)
-	}
-	if stats.MaxMs != 100 {
-		t.Errorf("MaxMs = %f, want 100", stats.MaxMs)
-	}
-	if stats.AvgMs != 55 {
-		t.Errorf("AvgMs = %f, want 55", stats.AvgMs)
-	}
-	// P50 should be around index 5 (60)
-	if stats.P50Ms != 60 {
-		t.Errorf("P50Ms = %f, want 60", stats.P50Ms)
-	}
-}
-
-func TestCalculateStats_Empty(t *testing.T) {
-	stats := CalculateStats([]float64{})
-	if stats.MinMs != 0 || stats.MaxMs != 0 || stats.AvgMs != 0 {
-		t.Error("CalculateStats([]) should return zero stats")
-	}
-}
-
-func TestNewReplay_NilData(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("NewReplay(nil) should panic")
+		if stats.MinMs != 10 {
+			t.Errorf("MinMs = %f, want 10", stats.MinMs)
 		}
-	}()
-	NewReplay(nil, ModeSample, 1.0)
-}
-
-func TestNewReplay_EmptyInterArrivals(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("NewReplay with empty InterArrivalMs should panic")
+		if stats.MaxMs != 100 {
+			t.Errorf("MaxMs = %f, want 100", stats.MaxMs)
 		}
-	}()
-	data := &TimingData{InterArrivalMs: []float64{}}
-	NewReplay(data, ModeSample, 1.0)
-}
-
-func TestGenerateSynthetic_InvalidCount(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("GenerateSynthetic(0, ...) should panic")
+		if stats.AvgMs != 55 {
+			t.Errorf("AvgMs = %f, want 55", stats.AvgMs)
 		}
-	}()
-	GenerateSynthetic(0, 50.0, 20.0)
-}
-
-func TestGenerateSynthetic_InvalidAvgMs(t *testing.T) {
-	defer func() {
-		if r := recover(); r == nil {
-			t.Error("GenerateSynthetic(..., 0, ...) should panic")
+		// P50 should be around index 5 (60)
+		if stats.P50Ms != 60 {
+			t.Errorf("P50Ms = %f, want 60", stats.P50Ms)
 		}
-	}()
-	GenerateSynthetic(100, 0, 20.0)
+	})
+
+	t.Run("Empty", func(t *testing.T) {
+		stats := CalculateStats([]float64{})
+		if stats.MinMs != 0 || stats.MaxMs != 0 || stats.AvgMs != 0 {
+			t.Error("CalculateStats([]) should return zero stats")
+		}
+	})
 }
 
 func TestHelperFunctions(t *testing.T) {
-	// Test average
-	vals := []float64{10, 20, 30, 40, 50}
-	avg := average(vals)
-	if avg != 30.0 {
-		t.Errorf("average() = %f, want 30.0", avg)
-	}
+	t.Run("Average", func(t *testing.T) {
+		vals := []float64{10, 20, 30, 40, 50}
+		if avg := average(vals); avg != 30.0 {
+			t.Errorf("average() = %f, want 30.0", avg)
+		}
+	})
 
-	// Test average empty
-	if avg := average([]float64{}); avg != 0 {
-		t.Errorf("average([]) = %f, want 0", avg)
-	}
+	t.Run("AverageEmpty", func(t *testing.T) {
+		if avg := average([]float64{}); avg != 0 {
+			t.Errorf("average([]) = %f, want 0", avg)
+		}
+	})
 
-	// Test sum
-	s := sum(vals)
-	if s != 150.0 {
-		t.Errorf("sum() = %f, want 150.0", s)
-	}
+	t.Run("Sum", func(t *testing.T) {
+		vals := []float64{10, 20, 30, 40, 50}
+		if s := sum(vals); s != 150.0 {
+			t.Errorf("sum() = %f, want 150.0", s)
+		}
+	})
 
-	// Test percentile
-	sorted := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
-	p50 := percentile(sorted, 0.50)
-	if p50 != 6.0 {
-		t.Errorf("percentile(50) = %f, want 6.0", p50)
-	}
+	t.Run("Percentile", func(t *testing.T) {
+		sorted := []float64{1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+		if p50 := percentile(sorted, 0.50); p50 != 6.0 {
+			t.Errorf("percentile(50) = %f, want 6.0", p50)
+		}
+		if p90 := percentile(sorted, 0.90); p90 != 10.0 {
+			t.Errorf("percentile(90) = %f, want 10.0", p90)
+		}
+	})
 
-	p90 := percentile(sorted, 0.90)
-	if p90 != 10.0 {
-		t.Errorf("percentile(90) = %f, want 10.0", p90)
-	}
-
-	// Test percentile empty
-	if p := percentile([]float64{}, 0.50); p != 0 {
-		t.Errorf("percentile([]) = %f, want 0", p)
-	}
+	t.Run("PercentileEmpty", func(t *testing.T) {
+		if p := percentile([]float64{}, 0.50); p != 0 {
+			t.Errorf("percentile([]) = %f, want 0", p)
+		}
+	})
 }

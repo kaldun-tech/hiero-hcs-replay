@@ -1,0 +1,15 @@
+linters:
+  enable:
+    - gocognit
+
+issues:
+  exclude-rules:
+    # Test functions often have higher complexity due to setup/assertions
+    - path: _test\.go
+      linters:
+        - gocognit
+    # fetchMessages complexity is inherent to pagination logic
+    - path: fetch\.go
+      text: "fetchMessages"
+      linters:
+        - gocognit

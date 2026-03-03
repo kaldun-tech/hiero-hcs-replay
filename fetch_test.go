@@ -11,12 +11,55 @@ import (
 	"time"
 )
 
+// Test constants for topic IDs and timestamps.
+const (
+	fetchTestTopicID = "0.0.12345"
+
+	// Base timestamp: 2024-01-01 00:00:00 UTC
+	tsBase   = "1704067200.000000000"
+	ts100ms  = "1704067200.100000000"
+	ts200ms  = "1704067200.200000000"
+	ts250ms  = "1704067200.250000000"
+	ts300ms  = "1704067200.300000000"
+	ts350ms  = "1704067200.350000000"
+	ts500ms  = "1704067200.500000000"
+	ts1000ms = "1704067201.000000000"
+
+	// Error message format for FetchTimingWithOptions tests
+	errFormat = "FetchTimingWithOptions() error = %v"
+)
+
 // floatEquals checks if two floats are approximately equal (within 0.001).
 func floatEquals(a, b float64) bool {
 	return math.Abs(a-b) < 0.001
 }
 
-func TestNetwork_MirrorNodeURL(t *testing.T) {
+// encodeJSONResponse writes a JSON response, failing the test on error.
+func encodeJSONResponse(t *testing.T, w http.ResponseWriter, v any) {
+	t.Helper()
+	if err := json.NewEncoder(w).Encode(v); err != nil {
+		t.Errorf("failed to encode response: %v", err)
+	}
+}
+
+// newTestServer creates an httptest.Server that responds with the given messages.
+func newTestServer(t *testing.T, messages []hcsMessage) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		encodeJSONResponse(t, w, hcsResponse{Messages: messages})
+	}))
+}
+
+// newTestFetchOptions creates FetchOptions configured for the given test server.
+func newTestFetchOptions(server *httptest.Server) FetchOptions {
+	return FetchOptions{
+		BaseURL:      server.URL,
+		RequestDelay: 1 * time.Millisecond,
+		HTTPClient:   server.Client(),
+	}
+}
+
+func TestNetworkMirrorNodeURL(t *testing.T) {
 	tests := []struct {
 		network Network
 		wantURL string
@@ -37,37 +80,27 @@ func TestNetwork_MirrorNodeURL(t *testing.T) {
 }
 
 func TestFetchTimingWithOptions(t *testing.T) {
-	// Create a mock server
 	messages := []hcsMessage{
-		{ConsensusTimestamp: "1704067200.000000000", SequenceNumber: 1},
-		{ConsensusTimestamp: "1704067200.100000000", SequenceNumber: 2},
-		{ConsensusTimestamp: "1704067200.250000000", SequenceNumber: 3},
-		{ConsensusTimestamp: "1704067200.500000000", SequenceNumber: 4},
-		{ConsensusTimestamp: "1704067201.000000000", SequenceNumber: 5},
+		{ConsensusTimestamp: tsBase, SequenceNumber: 1},
+		{ConsensusTimestamp: ts100ms, SequenceNumber: 2},
+		{ConsensusTimestamp: ts250ms, SequenceNumber: 3},
+		{ConsensusTimestamp: ts500ms, SequenceNumber: 4},
+		{ConsensusTimestamp: ts1000ms, SequenceNumber: 5},
 	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		resp := hcsResponse{Messages: messages}
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			t.Errorf("failed to encode response: %v", err)
-		}
-	}))
+	server := newTestServer(t, messages)
 	defer server.Close()
 
 	ctx := context.Background()
-	opts := FetchOptions{
-		BaseURL:      server.URL,
-		RequestDelay: 1 * time.Millisecond,
-		HTTPClient:   server.Client(),
-	}
+	opts := newTestFetchOptions(server)
 
-	data, err := FetchTimingWithOptions(ctx, "0.0.12345", Testnet, 100, opts)
+	data, err := FetchTimingWithOptions(ctx, fetchTestTopicID, Testnet, 100, opts)
 	if err != nil {
-		t.Fatalf("FetchTimingWithOptions() error = %v", err)
+		t.Fatalf(errFormat, err)
 	}
 
-	if data.TopicID != "0.0.12345" {
-		t.Errorf("TopicID = %q, want %q", data.TopicID, "0.0.12345")
+	if data.TopicID != fetchTestTopicID {
+		t.Errorf("TopicID = %q, want %q", data.TopicID, fetchTestTopicID)
 	}
 	if data.MessageCount != 5 {
 		t.Errorf("MessageCount = %d, want 5", data.MessageCount)
@@ -76,7 +109,7 @@ func TestFetchTimingWithOptions(t *testing.T) {
 		t.Errorf("InterArrivalMs length = %d, want 4", len(data.InterArrivalMs))
 	}
 
-	// Verify inter-arrival times (in ms) - use approximate comparison for float precision
+	// Verify inter-arrival times (in ms)
 	expected := []float64{100, 150, 250, 500}
 	for i, want := range expected {
 		if !floatEquals(data.InterArrivalMs[i], want) {
@@ -85,14 +118,14 @@ func TestFetchTimingWithOptions(t *testing.T) {
 	}
 }
 
-func TestFetchTimingWithOptions_Pagination(t *testing.T) {
+func TestFetchTimingWithOptionsPagination(t *testing.T) {
 	page1Messages := []hcsMessage{
-		{ConsensusTimestamp: "1704067200.000000000", SequenceNumber: 1},
-		{ConsensusTimestamp: "1704067200.100000000", SequenceNumber: 2},
+		{ConsensusTimestamp: tsBase, SequenceNumber: 1},
+		{ConsensusTimestamp: ts100ms, SequenceNumber: 2},
 	}
 	page2Messages := []hcsMessage{
-		{ConsensusTimestamp: "1704067200.200000000", SequenceNumber: 3},
-		{ConsensusTimestamp: "1704067200.300000000", SequenceNumber: 4},
+		{ConsensusTimestamp: ts200ms, SequenceNumber: 3},
+		{ConsensusTimestamp: ts300ms, SequenceNumber: 4},
 	}
 
 	requestCount := 0
@@ -102,27 +135,21 @@ func TestFetchTimingWithOptions_Pagination(t *testing.T) {
 		if requestCount == 1 {
 			resp = hcsResponse{
 				Messages: page1Messages,
-				Links:    struct{ Next string `json:"next"` }{Next: "/api/v1/topics/0.0.12345/messages?timestamp=gt:1704067200.100000000"},
+				Links:    struct{ Next string `json:"next"` }{Next: "/api/v1/topics/0.0.12345/messages?timestamp=gt:" + ts100ms},
 			}
 		} else {
 			resp = hcsResponse{Messages: page2Messages}
 		}
-		if err := json.NewEncoder(w).Encode(resp); err != nil {
-			t.Errorf("failed to encode response: %v", err)
-		}
+		encodeJSONResponse(t, w, resp)
 	}))
 	defer server.Close()
 
 	ctx := context.Background()
-	opts := FetchOptions{
-		BaseURL:      server.URL,
-		RequestDelay: 1 * time.Millisecond,
-		HTTPClient:   server.Client(),
-	}
+	opts := newTestFetchOptions(server)
 
-	data, err := FetchTimingWithOptions(ctx, "0.0.12345", Testnet, 100, opts)
+	data, err := FetchTimingWithOptions(ctx, fetchTestTopicID, Testnet, 100, opts)
 	if err != nil {
-		t.Fatalf("FetchTimingWithOptions() error = %v", err)
+		t.Fatalf(errFormat, err)
 	}
 
 	if data.MessageCount != 4 {
@@ -133,112 +160,114 @@ func TestFetchTimingWithOptions_Pagination(t *testing.T) {
 	}
 }
 
-func TestFetchTimingWithOptions_NotFound(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer server.Close()
+func TestFetchTimingWithOptionsErrors(t *testing.T) {
+	t.Run("NotFound", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNotFound)
+		}))
+		defer server.Close()
 
-	ctx := context.Background()
-	opts := FetchOptions{
-		BaseURL:    server.URL,
-		HTTPClient: server.Client(),
-	}
-
-	_, err := FetchTimingWithOptions(ctx, "0.0.12345", Testnet, 100, opts)
-	if err == nil {
-		t.Error("FetchTimingWithOptions() expected error for 404, got nil")
-	}
-	if !errors.Is(err, ErrTopicNotFound) {
-		t.Errorf("error should wrap ErrTopicNotFound, got: %v", err)
-	}
-}
-
-func TestFetchTimingWithOptions_NotEnoughMessages(t *testing.T) {
-	messages := []hcsMessage{
-		{ConsensusTimestamp: "1704067200.000000000", SequenceNumber: 1},
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewEncoder(w).Encode(hcsResponse{Messages: messages}); err != nil {
-			t.Errorf("failed to encode response: %v", err)
+		ctx := context.Background()
+		opts := FetchOptions{
+			BaseURL:    server.URL,
+			HTTPClient: server.Client(),
 		}
-	}))
-	defer server.Close()
 
-	ctx := context.Background()
-	opts := FetchOptions{
-		BaseURL:    server.URL,
-		HTTPClient: server.Client(),
-	}
-
-	_, err := FetchTimingWithOptions(ctx, "0.0.12345", Testnet, 100, opts)
-	if err == nil {
-		t.Error("FetchTimingWithOptions() expected error for < 2 messages, got nil")
-	}
-	if !errors.Is(err, ErrNotEnoughMessages) {
-		t.Errorf("error should wrap ErrNotEnoughMessages, got: %v", err)
-	}
-}
-
-func TestFetchTimingWithOptions_InvalidTopicID(t *testing.T) {
-	ctx := context.Background()
-	opts := FetchOptions{}
-
-	tests := []string{
-		"invalid",
-		"0.0",
-		"0.0.abc",
-		"",
-		"0.0.12345.extra",
-	}
-
-	for _, topicID := range tests {
-		_, err := FetchTimingWithOptions(ctx, topicID, Testnet, 100, opts)
+		_, err := FetchTimingWithOptions(ctx, fetchTestTopicID, Testnet, 100, opts)
 		if err == nil {
-			t.Errorf("FetchTimingWithOptions(%q) expected error, got nil", topicID)
+			t.Error("FetchTimingWithOptions() expected error for 404, got nil")
 		}
-		if !errors.Is(err, ErrInvalidTopicID) {
-			t.Errorf("FetchTimingWithOptions(%q) error should wrap ErrInvalidTopicID, got: %v", topicID, err)
+		if !errors.Is(err, ErrTopicNotFound) {
+			t.Errorf("error should wrap ErrTopicNotFound, got: %v", err)
 		}
-	}
+	})
+
+	t.Run("NotEnoughMessages", func(t *testing.T) {
+		messages := []hcsMessage{
+			{ConsensusTimestamp: tsBase, SequenceNumber: 1},
+		}
+
+		server := newTestServer(t, messages)
+		defer server.Close()
+
+		ctx := context.Background()
+		opts := FetchOptions{
+			BaseURL:    server.URL,
+			HTTPClient: server.Client(),
+		}
+
+		_, err := FetchTimingWithOptions(ctx, fetchTestTopicID, Testnet, 100, opts)
+		if err == nil {
+			t.Error("FetchTimingWithOptions() expected error for < 2 messages, got nil")
+		}
+		if !errors.Is(err, ErrNotEnoughMessages) {
+			t.Errorf("error should wrap ErrNotEnoughMessages, got: %v", err)
+		}
+	})
+
+	t.Run("InvalidTopicID", func(t *testing.T) {
+		ctx := context.Background()
+		opts := FetchOptions{}
+
+		invalidIDs := []string{
+			"invalid",
+			"0.0",
+			"0.0.abc",
+			"",
+			"0.0.12345.extra",
+		}
+
+		for _, topicID := range invalidIDs {
+			_, err := FetchTimingWithOptions(ctx, topicID, Testnet, 100, opts)
+			if err == nil {
+				t.Errorf("FetchTimingWithOptions(%q) expected error, got nil", topicID)
+			}
+			if !errors.Is(err, ErrInvalidTopicID) {
+				t.Errorf("FetchTimingWithOptions(%q) error should wrap ErrInvalidTopicID, got: %v", topicID, err)
+			}
+		}
+	})
+
+	t.Run("ContextCancellation", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			time.Sleep(100 * time.Millisecond)
+			encodeJSONResponse(t, w, hcsResponse{})
+		}))
+		defer server.Close()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel() // Cancel immediately
+
+		opts := FetchOptions{
+			BaseURL:    server.URL,
+			HTTPClient: server.Client(),
+		}
+
+		_, err := FetchTimingWithOptions(ctx, fetchTestTopicID, Testnet, 100, opts)
+		if err == nil {
+			t.Error("FetchTimingWithOptions() expected error for cancelled context, got nil")
+		}
+	})
+
+	t.Run("UnknownNetwork", func(t *testing.T) {
+		ctx := context.Background()
+		opts := FetchOptions{} // No BaseURL override
+
+		_, err := FetchTimingWithOptions(ctx, fetchTestTopicID, Network("invalid"), 100, opts)
+		if err == nil {
+			t.Error("FetchTimingWithOptions() expected error for unknown network, got nil")
+		}
+	})
 }
 
-func TestFetchTimingWithOptions_ContextCancellation(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		time.Sleep(100 * time.Millisecond)
-		if err := json.NewEncoder(w).Encode(hcsResponse{}); err != nil {
-			t.Errorf("failed to encode response: %v", err)
-		}
-	}))
-	defer server.Close()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-
-	opts := FetchOptions{
-		BaseURL:    server.URL,
-		HTTPClient: server.Client(),
-	}
-
-	_, err := FetchTimingWithOptions(ctx, "0.0.12345", Testnet, 100, opts)
-	if err == nil {
-		t.Error("FetchTimingWithOptions() expected error for cancelled context, got nil")
-	}
-}
-
-func TestFetchTimingWithOptions_OnProgress(t *testing.T) {
+func TestFetchTimingWithOptionsOnProgress(t *testing.T) {
 	messages := []hcsMessage{
-		{ConsensusTimestamp: "1704067200.000000000", SequenceNumber: 1},
-		{ConsensusTimestamp: "1704067200.100000000", SequenceNumber: 2},
-		{ConsensusTimestamp: "1704067200.200000000", SequenceNumber: 3},
+		{ConsensusTimestamp: tsBase, SequenceNumber: 1},
+		{ConsensusTimestamp: ts100ms, SequenceNumber: 2},
+		{ConsensusTimestamp: ts200ms, SequenceNumber: 3},
 	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewEncoder(w).Encode(hcsResponse{Messages: messages}); err != nil {
-			t.Errorf("failed to encode response: %v", err)
-		}
-	}))
+	server := newTestServer(t, messages)
 	defer server.Close()
 
 	var progressCalls []int
@@ -252,9 +281,9 @@ func TestFetchTimingWithOptions_OnProgress(t *testing.T) {
 		},
 	}
 
-	_, err := FetchTimingWithOptions(ctx, "0.0.12345", Testnet, 100, opts)
+	_, err := FetchTimingWithOptions(ctx, fetchTestTopicID, Testnet, 100, opts)
 	if err != nil {
-		t.Fatalf("FetchTimingWithOptions() error = %v", err)
+		t.Fatalf(errFormat, err)
 	}
 
 	if len(progressCalls) != 1 {
@@ -265,17 +294,7 @@ func TestFetchTimingWithOptions_OnProgress(t *testing.T) {
 	}
 }
 
-func TestFetchTimingWithOptions_UnknownNetwork(t *testing.T) {
-	ctx := context.Background()
-	opts := FetchOptions{} // No BaseURL override
-
-	_, err := FetchTimingWithOptions(ctx, "0.0.12345", Network("invalid"), 100, opts)
-	if err == nil {
-		t.Error("FetchTimingWithOptions() expected error for unknown network, got nil")
-	}
-}
-
-func TestFetchTimingWithOptions_Limit(t *testing.T) {
+func TestFetchTimingWithOptionsLimit(t *testing.T) {
 	messages := make([]hcsMessage, 10)
 	for i := range messages {
 		messages[i] = hcsMessage{
@@ -286,11 +305,7 @@ func TestFetchTimingWithOptions_Limit(t *testing.T) {
 		messages[i].ConsensusTimestamp = "1704067200." + string(rune('0'+i)) + "00000000"
 	}
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if err := json.NewEncoder(w).Encode(hcsResponse{Messages: messages}); err != nil {
-			t.Errorf("failed to encode response: %v", err)
-		}
-	}))
+	server := newTestServer(t, messages)
 	defer server.Close()
 
 	ctx := context.Background()
@@ -300,9 +315,9 @@ func TestFetchTimingWithOptions_Limit(t *testing.T) {
 	}
 
 	// Request only 5 messages
-	data, err := FetchTimingWithOptions(ctx, "0.0.12345", Testnet, 5, opts)
+	data, err := FetchTimingWithOptions(ctx, fetchTestTopicID, Testnet, 5, opts)
 	if err != nil {
-		t.Fatalf("FetchTimingWithOptions() error = %v", err)
+		t.Fatalf(errFormat, err)
 	}
 
 	if data.MessageCount != 5 {
@@ -329,10 +344,10 @@ func TestParseConsensusTimestamp(t *testing.T) {
 		ts   string
 		want float64
 	}{
-		{"1704067200.000000000", 1704067200.0},
-		{"1704067200.500000000", 1704067200.5},
-		{"1704067200.123456789", 1704067200.123456789},
-		{"1704067200", 1704067200.0},
+		{tsBase, 1704067200.0},
+		{ts500ms, 1704067200.5},
+		{"1704067200.123456789", 1704067200.123456789}, // unique test value
+		{"1704067200", 1704067200.0},                   // no fractional part
 	}
 
 	for _, tt := range tests {
@@ -346,39 +361,41 @@ func TestParseConsensusTimestamp(t *testing.T) {
 }
 
 func TestCalculateInterArrivals(t *testing.T) {
-	messages := []hcsMessage{
-		{ConsensusTimestamp: "1704067200.000000000"},
-		{ConsensusTimestamp: "1704067200.100000000"},
-		{ConsensusTimestamp: "1704067200.350000000"},
-		{ConsensusTimestamp: "1704067201.000000000"},
-	}
-
-	arrivals := calculateInterArrivals(messages)
-
-	expected := []float64{100, 250, 650}
-	if len(arrivals) != len(expected) {
-		t.Fatalf("length = %d, want %d", len(arrivals), len(expected))
-	}
-
-	for i, want := range expected {
-		if !floatEquals(arrivals[i], want) {
-			t.Errorf("arrivals[%d] = %f, want ~%f", i, arrivals[i], want)
+	t.Run("Normal", func(t *testing.T) {
+		messages := []hcsMessage{
+			{ConsensusTimestamp: tsBase},
+			{ConsensusTimestamp: ts100ms},
+			{ConsensusTimestamp: ts350ms},
+			{ConsensusTimestamp: ts1000ms},
 		}
-	}
-}
 
-func TestCalculateInterArrivals_TooFewMessages(t *testing.T) {
-	// Empty
-	arrivals := calculateInterArrivals([]hcsMessage{})
-	if arrivals != nil {
-		t.Errorf("expected nil for empty messages, got %v", arrivals)
-	}
+		arrivals := calculateInterArrivals(messages)
 
-	// Single message
-	arrivals = calculateInterArrivals([]hcsMessage{
-		{ConsensusTimestamp: "1704067200.000000000"},
+		expected := []float64{100, 250, 650}
+		if len(arrivals) != len(expected) {
+			t.Fatalf("length = %d, want %d", len(arrivals), len(expected))
+		}
+
+		for i, want := range expected {
+			if !floatEquals(arrivals[i], want) {
+				t.Errorf("arrivals[%d] = %f, want ~%f", i, arrivals[i], want)
+			}
+		}
 	})
-	if arrivals != nil {
-		t.Errorf("expected nil for single message, got %v", arrivals)
-	}
+
+	t.Run("TooFewMessages", func(t *testing.T) {
+		// Empty
+		arrivals := calculateInterArrivals([]hcsMessage{})
+		if arrivals != nil {
+			t.Errorf("expected nil for empty messages, got %v", arrivals)
+		}
+
+		// Single message
+		arrivals = calculateInterArrivals([]hcsMessage{
+			{ConsensusTimestamp: tsBase},
+		})
+		if arrivals != nil {
+			t.Errorf("expected nil for single message, got %v", arrivals)
+		}
+	})
 }

@@ -171,10 +171,15 @@ func FetchTimingWithOptions(ctx context.Context, topicID string, network Network
 	}, nil
 }
 
+// fetchMessages retrieves HCS messages from the mirror node with pagination support.
+// It fetches up to 'limit' messages, following pagination links until exhausted.
+// The 'delay' parameter adds a pause between requests to avoid rate limiting.
+// If 'onProgress' is provided, it's called after each page with the running total.
 func fetchMessages(ctx context.Context, client *http.Client, baseURL, topicID string, limit int, delay time.Duration, onProgress func(int)) ([]hcsMessage, error) {
 	var messages []hcsMessage
 	url := fmt.Sprintf("%s/api/v1/topics/%s/messages?limit=100&order=asc", baseURL, topicID)
 
+	// Paginate until we have enough messages or run out of pages
 	for url != "" && len(messages) < limit {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
@@ -203,6 +208,7 @@ func fetchMessages(ctx context.Context, client *http.Client, baseURL, topicID st
 		}
 		resp.Body.Close()
 
+		// No more messages available
 		if len(hcsResp.Messages) == 0 {
 			break
 		}
@@ -213,6 +219,7 @@ func fetchMessages(ctx context.Context, client *http.Client, baseURL, topicID st
 			onProgress(len(messages))
 		}
 
+		// Follow pagination link if available, with rate-limit delay
 		if hcsResp.Links.Next != "" {
 			url = baseURL + hcsResp.Links.Next
 			select {
@@ -225,6 +232,7 @@ func fetchMessages(ctx context.Context, client *http.Client, baseURL, topicID st
 		}
 	}
 
+	// Trim to exact limit if we fetched more than requested
 	if len(messages) > limit {
 		messages = messages[:limit]
 	}
@@ -232,6 +240,9 @@ func fetchMessages(ctx context.Context, client *http.Client, baseURL, topicID st
 	return messages, nil
 }
 
+// parseConsensusTimestamp converts a Hedera consensus timestamp string to seconds.
+// The format is "seconds.nanoseconds" (e.g., "1704067200.123456789").
+// ParseInt uses base 10 and 64-bit integers to handle Unix timestamps.
 func parseConsensusTimestamp(ts string) float64 {
 	parts := strings.Split(ts, ".")
 	seconds, _ := strconv.ParseInt(parts[0], 10, 64)
@@ -242,17 +253,22 @@ func parseConsensusTimestamp(ts string) float64 {
 	return float64(seconds) + float64(nanos)/1e9
 }
 
+// calculateInterArrivals computes the time gaps between consecutive messages.
+// Returns nil if fewer than 2 messages are provided, since inter-arrival times
+// measure the delay between consecutive events (N messages yield N-1 intervals).
 func calculateInterArrivals(messages []hcsMessage) []float64 {
 	if len(messages) < 2 {
 		return nil
 	}
 
+	// Extract and sort timestamps to ensure chronological order
 	timestamps := make([]float64, len(messages))
 	for i, m := range messages {
 		timestamps[i] = parseConsensusTimestamp(m.ConsensusTimestamp)
 	}
 	sort.Float64s(timestamps)
 
+	// Calculate time delta between each consecutive pair, converted to milliseconds
 	interArrivals := make([]float64, len(timestamps)-1)
 	for i := 1; i < len(timestamps); i++ {
 		deltaMs := (timestamps[i] - timestamps[i-1]) * 1000
