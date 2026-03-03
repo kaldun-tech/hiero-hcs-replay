@@ -3,13 +3,32 @@ package hcsreplay
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// Sentinel errors for programmatic error handling.
+var (
+	// ErrTopicNotFound is returned when the specified topic does not exist or has no messages.
+	ErrTopicNotFound = errors.New("topic not found")
+
+	// ErrNotEnoughMessages is returned when the topic has fewer than 2 messages,
+	// which is insufficient to calculate inter-arrival times.
+	ErrNotEnoughMessages = errors.New("not enough messages to calculate timing")
+
+	// ErrInvalidTopicID is returned when the topic ID format is invalid.
+	// Valid format is "shard.realm.num" (e.g., "0.0.12345").
+	ErrInvalidTopicID = errors.New("invalid topic ID format")
+)
+
+// topicIDPattern matches valid Hedera topic IDs (shard.realm.num).
+var topicIDPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 
 // Network represents a Hedera network.
 type Network string
@@ -62,7 +81,9 @@ type FetchOptions struct {
 func DefaultFetchOptions() FetchOptions {
 	return FetchOptions{
 		RequestDelay: 100 * time.Millisecond,
-		HTTPClient:   http.DefaultClient,
+		HTTPClient: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
@@ -96,6 +117,10 @@ func FetchTiming(ctx context.Context, topicID string, network Network, limit int
 
 // FetchTimingWithOptions fetches message timing data with custom options.
 func FetchTimingWithOptions(ctx context.Context, topicID string, network Network, limit int, opts FetchOptions) (*TimingData, error) {
+	if !topicIDPattern.MatchString(topicID) {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidTopicID, topicID)
+	}
+
 	baseURL := opts.BaseURL
 	if baseURL == "" {
 		baseURL = network.MirrorNodeURL()
@@ -117,7 +142,7 @@ func FetchTimingWithOptions(ctx context.Context, topicID string, network Network
 	}
 
 	if len(messages) < 2 {
-		return nil, fmt.Errorf("not enough messages (%d) to calculate timing", len(messages))
+		return nil, fmt.Errorf("%w: got %d, need at least 2", ErrNotEnoughMessages, len(messages))
 	}
 
 	interArrivals := calculateInterArrivals(messages)
@@ -164,7 +189,7 @@ func fetchMessages(ctx context.Context, client *http.Client, baseURL, topicID st
 
 		if resp.StatusCode == http.StatusNotFound {
 			resp.Body.Close()
-			return nil, fmt.Errorf("topic %s not found or has no messages", topicID)
+			return nil, fmt.Errorf("%w: %s", ErrTopicNotFound, topicID)
 		}
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()

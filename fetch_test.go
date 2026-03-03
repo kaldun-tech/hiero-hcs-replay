@@ -3,6 +3,7 @@ package hcsreplay
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -148,6 +149,9 @@ func TestFetchTimingWithOptions_NotFound(t *testing.T) {
 	if err == nil {
 		t.Error("FetchTimingWithOptions() expected error for 404, got nil")
 	}
+	if !errors.Is(err, ErrTopicNotFound) {
+		t.Errorf("error should wrap ErrTopicNotFound, got: %v", err)
+	}
 }
 
 func TestFetchTimingWithOptions_NotEnoughMessages(t *testing.T) {
@@ -171,6 +175,32 @@ func TestFetchTimingWithOptions_NotEnoughMessages(t *testing.T) {
 	_, err := FetchTimingWithOptions(ctx, "0.0.12345", Testnet, 100, opts)
 	if err == nil {
 		t.Error("FetchTimingWithOptions() expected error for < 2 messages, got nil")
+	}
+	if !errors.Is(err, ErrNotEnoughMessages) {
+		t.Errorf("error should wrap ErrNotEnoughMessages, got: %v", err)
+	}
+}
+
+func TestFetchTimingWithOptions_InvalidTopicID(t *testing.T) {
+	ctx := context.Background()
+	opts := FetchOptions{}
+
+	tests := []string{
+		"invalid",
+		"0.0",
+		"0.0.abc",
+		"",
+		"0.0.12345.extra",
+	}
+
+	for _, topicID := range tests {
+		_, err := FetchTimingWithOptions(ctx, topicID, Testnet, 100, opts)
+		if err == nil {
+			t.Errorf("FetchTimingWithOptions(%q) expected error, got nil", topicID)
+		}
+		if !errors.Is(err, ErrInvalidTopicID) {
+			t.Errorf("FetchTimingWithOptions(%q) error should wrap ErrInvalidTopicID, got: %v", topicID, err)
+		}
 	}
 }
 
@@ -286,8 +316,11 @@ func TestDefaultFetchOptions(t *testing.T) {
 	if opts.RequestDelay != 100*time.Millisecond {
 		t.Errorf("RequestDelay = %v, want 100ms", opts.RequestDelay)
 	}
-	if opts.HTTPClient != http.DefaultClient {
-		t.Error("HTTPClient should be http.DefaultClient")
+	if opts.HTTPClient == nil {
+		t.Error("HTTPClient should not be nil")
+	}
+	if opts.HTTPClient.Timeout != 30*time.Second {
+		t.Errorf("HTTPClient.Timeout = %v, want 30s", opts.HTTPClient.Timeout)
 	}
 }
 
