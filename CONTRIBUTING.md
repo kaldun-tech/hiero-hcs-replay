@@ -46,6 +46,30 @@ golangci-lint run
 4. Write a clear PR description explaining the change
 5. Reference any related issues
 
+## Developer Certificate of Origin (DCO)
+
+This project requires all commits to be signed off in accordance with the [Developer Certificate of Origin (DCO)](https://developercertificate.org/). This certifies that you wrote or have the right to submit the code you're contributing.
+
+**Sign off your commits** by adding `-s` to your commit command:
+
+```bash
+git commit -s -m "feat: add new feature"
+```
+
+This adds a `Signed-off-by` line to your commit message:
+
+```
+feat: add new feature
+
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+To configure git to always sign off commits:
+
+```bash
+git config --global commit.signoff true
+```
+
 ## Commit Messages
 
 Use clear, descriptive commit messages:
