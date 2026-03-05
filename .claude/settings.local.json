@@ -9,7 +9,10 @@
       "Bash(golangci-lint run:*)",
       "Bash(go mod verify:*)",
       "Bash(go mod tidy:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(gh api:*)"
     ]
   }
 }
