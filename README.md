@@ -225,7 +225,7 @@ a production benchmarking tool for Hedera workloads.
 - Follows Hedera community best practices (MIT license, DCO compliance)
 
 ### On-Chain Proof
-- Demo topic: [0.0.8085696](https://hashscan.io/testnet/topic/0.0.8085696)
+- Demo topic: [0.0.8098128](https://hashscan.io/testnet/topic/0.0.8098128)
 - See [hiero-hcs-replay-demo](https://github.com/kaldun-tech/hiero-hcs-replay-demo) for live integration
 
 ## Roadmap
