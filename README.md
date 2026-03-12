@@ -4,6 +4,8 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/kaldun-tech/hiero-hcs-replay.svg)](https://pkg.go.dev/github.com/kaldun-tech/hiero-hcs-replay)
 [![Go Report Card](https://goreportcard.com/badge/github.com/kaldun-tech/hiero-hcs-replay)](https://goreportcard.com/report/github.com/kaldun-tech/hiero-hcs-replay)
 
+📊 [Pitch Deck](docs/hiero-hcs-replay-pitch-deck.pdf)
+
 A reusable Go library for HCS (Hedera Consensus Service) timing replay. Fetch real message timing patterns from HCS topics and replay them at configurable speeds to drive realistic load tests against Hedera workloads.
 
 ## The Problem
