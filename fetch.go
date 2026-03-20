@@ -261,7 +261,7 @@ func calculateInterArrivals(messages []hcsMessage) []float64 {
 		return nil
 	}
 
-	// Extract and sort timestamps to ensure chronological order
+	// Extract and sort timestamps in seconds to ensure chronological order
 	timestamps := make([]float64, len(messages))
 	for i, m := range messages {
 		timestamps[i] = parseConsensusTimestamp(m.ConsensusTimestamp)

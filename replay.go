@@ -246,6 +246,11 @@ func GenerateSynthetic(count int, avgMs, stddevMs float64) *TimingData {
 	}
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 
+	// Pre-compute log-normal parameters (constant for the distribution)
+	variance := (stddevMs * stddevMs) / (avgMs * avgMs)
+	logMean := math.Log(avgMs) - 0.5*math.Log(1+variance)
+	logStd := math.Sqrt(math.Log(1 + variance))
+
 	// Generate log-normal distributed inter-arrivals
 	interArrivals := make([]float64, count)
 	for i := range interArrivals {
@@ -255,9 +260,6 @@ func GenerateSynthetic(count int, avgMs, stddevMs float64) *TimingData {
 		z := math.Sqrt(-2*math.Log(u1)) * math.Cos(2*math.Pi*u2)
 
 		// Convert to log-normal
-		logMean := math.Log(avgMs) - 0.5*math.Log(1+(stddevMs*stddevMs)/(avgMs*avgMs))
-		logStd := math.Sqrt(math.Log(1 + (stddevMs*stddevMs)/(avgMs*avgMs)))
-
 		value := math.Exp(logMean + logStd*z)
 		if value < 1 {
 			value = 1 // Minimum 1ms

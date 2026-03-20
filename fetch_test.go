@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -182,6 +183,45 @@ func TestFetchTimingWithOptionsErrors(t *testing.T) {
 		}
 	})
 
+	t.Run("ServerError", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer server.Close()
+
+		ctx := context.Background()
+		opts := FetchOptions{
+			BaseURL:    server.URL,
+			HTTPClient: server.Client(),
+		}
+
+		_, err := FetchTimingWithOptions(ctx, fetchTestTopicID, Testnet, 100, opts)
+		if err == nil {
+			t.Error("FetchTimingWithOptions() expected error for 500, got nil")
+		}
+		if errors.Is(err, ErrTopicNotFound) {
+			t.Error("500 error should not be ErrTopicNotFound")
+		}
+	})
+
+	t.Run("ServiceUnavailable", func(t *testing.T) {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+		}))
+		defer server.Close()
+
+		ctx := context.Background()
+		opts := FetchOptions{
+			BaseURL:    server.URL,
+			HTTPClient: server.Client(),
+		}
+
+		_, err := FetchTimingWithOptions(ctx, fetchTestTopicID, Testnet, 100, opts)
+		if err == nil {
+			t.Error("FetchTimingWithOptions() expected error for 503, got nil")
+		}
+	})
+
 	t.Run("NotEnoughMessages", func(t *testing.T) {
 		messages := []hcsMessage{
 			{ConsensusTimestamp: tsBase, SequenceNumber: 1},
@@ -297,12 +337,11 @@ func TestFetchTimingWithOptionsOnProgress(t *testing.T) {
 func TestFetchTimingWithOptionsLimit(t *testing.T) {
 	messages := make([]hcsMessage, 10)
 	for i := range messages {
+		// Generate timestamps 100ms apart: 1704067200.000000000, 1704067200.100000000, etc.
 		messages[i] = hcsMessage{
-			ConsensusTimestamp: "1704067200.000000000",
+			ConsensusTimestamp: fmt.Sprintf("1704067200.%d00000000", i),
 			SequenceNumber:     int64(i + 1),
 		}
-		// Add 100ms between each message
-		messages[i].ConsensusTimestamp = "1704067200." + string(rune('0'+i)) + "00000000"
 	}
 
 	server := newTestServer(t, messages)

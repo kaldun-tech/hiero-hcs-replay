@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 )
@@ -14,6 +15,7 @@ const testTopicID = "0.0.12345"
 // writeTestFile is a helper that writes data to a temp file, failing the test on error.
 func writeTestFile(t *testing.T, path string, data []byte) {
 	t.Helper()
+	// 0644 permissions: read for owner/group/others, write for owner
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		t.Fatalf("failed to write test file: %v", err)
 	}
@@ -142,6 +144,25 @@ func TestReplayEffectiveRate(t *testing.T) {
 	if got := replay.EffectiveRate(); got != 20.0 {
 		t.Errorf("EffectiveRate() = %f, want 20.0", got)
 	}
+}
+
+func TestReplayConcurrency(t *testing.T) {
+	data := &TimingData{
+		InterArrivalMs: []float64{100, 200, 300},
+	}
+	replay := NewReplay(data, ModeSample, 1.0)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 100; j++ {
+				replay.NextDelay()
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestReplayData(t *testing.T) {
@@ -356,6 +377,17 @@ func TestGenerateSyntheticPanics(t *testing.T) {
 		}()
 		GenerateSynthetic(100, 0, 20.0)
 	})
+}
+
+func TestGenerateSyntheticNegativeStddev(t *testing.T) {
+	// Negative stddevMs should be clamped to 0 (no panic)
+	data := GenerateSynthetic(10, 50.0, -10.0)
+	if data == nil {
+		t.Fatal("GenerateSynthetic() returned nil for negative stddevMs")
+	}
+	if len(data.InterArrivalMs) != 10 {
+		t.Errorf("InterArrivalMs length = %d, want 10", len(data.InterArrivalMs))
+	}
 }
 
 func TestCalculateStats(t *testing.T) {
